@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Category, Reel } from './types';
 import { INITIAL_CATEGORIES, INITIAL_REELS } from './data/initialData';
 import LucideIcon from './components/LucideIcon';
@@ -7,6 +7,15 @@ import ReelFormModal from './components/ReelFormModal';
 import CategoryFormModal from './components/CategoryFormModal';
 import ReelPlayerModal from './components/ReelPlayerModal';
 import { motion, AnimatePresence } from 'motion/react';
+import {
+  isConnected as gIsConnected,
+  isTokenValid,
+  getValidToken,
+  getConnectedEmail,
+  requestToken,
+  disconnect as gDisconnect,
+} from './utils/googleAuth';
+import { uploadToDrive, downloadFromDrive } from './utils/googleDrive';
 
 export default function App() {
   // --- Persistent States ---
@@ -25,6 +34,13 @@ export default function App() {
   const [favoritesOnly, setFavoritesOnly] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
+
+  // --- Google Drive Sync States ---
+  const [googleConnected, setGoogleConnected] = useState(gIsConnected);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
+  const [syncError, setSyncError] = useState('');
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipDriveSyncRef = useRef(false);
 
   // --- Modals Toggle States ---
   const [isReelFormOpen, setIsReelFormOpen] = useState<boolean>(false);
@@ -45,6 +61,49 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('reel_organizer_reels', JSON.stringify(reels));
   }, [reels]);
+
+  // On mount: pull Drive backup if connected and token is valid
+  useEffect(() => {
+    if (!gIsConnected() || !isTokenValid()) return;
+    const token = getValidToken();
+    if (!token) return;
+    downloadFromDrive(token).then((data) => {
+      if (data?.categories && data?.reels) {
+        skipDriveSyncRef.current = true;
+        setCategories(data.categories);
+        setReels(data.reels);
+        setSyncStatus('synced');
+      }
+    });
+  }, []);
+
+  // Debounced upload to Drive on data changes
+  useEffect(() => {
+    if (!googleConnected) return;
+    if (skipDriveSyncRef.current) {
+      skipDriveSyncRef.current = false;
+      return;
+    }
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = setTimeout(async () => {
+      const token = getValidToken();
+      if (!token) {
+        setSyncStatus('error');
+        setSyncError('Session expired — reconnect Google.');
+        return;
+      }
+      setSyncStatus('syncing');
+      const result = await uploadToDrive(token, { categories, reels });
+      if (result.ok) {
+        setSyncStatus('synced');
+        setSyncError('');
+      } else {
+        setSyncStatus('error');
+        setSyncError(result.error || 'Sync failed');
+      }
+    }, 2000);
+    return () => { if (syncTimerRef.current) clearTimeout(syncTimerRef.current); };
+  }, [categories, reels]);
 
   // Synchronize Theater Mode active reel if details are modified
   useEffect(() => {
@@ -180,6 +239,40 @@ export default function App() {
     setSearchQuery('');
   };
 
+  // Connect Google Drive
+  const handleConnectGoogle = async () => {
+    const token = await requestToken();
+    if (!token) return;
+    setGoogleConnected(true);
+    setSyncStatus('syncing');
+    const data = await downloadFromDrive(token);
+    if (data?.categories && data?.reels) {
+      const restore = window.confirm(
+        'Found an existing Drive backup. Restore it?\n\nOK = use Drive data  |  Cancel = keep current and overwrite Drive'
+      );
+      if (restore) {
+        skipDriveSyncRef.current = true;
+        setCategories(data.categories);
+        setReels(data.reels);
+        setSyncStatus('synced');
+        return;
+      }
+    }
+    // Upload current local data to Drive
+    const result = await uploadToDrive(token, { categories, reels });
+    setSyncStatus(result.ok ? 'synced' : 'error');
+    if (!result.ok) setSyncError(result.error || 'Sync failed');
+  };
+
+  // Disconnect Google Drive
+  const handleDisconnectGoogle = () => {
+    if (!window.confirm('Disconnect Google Drive? Local data stays intact.')) return;
+    gDisconnect();
+    setGoogleConnected(false);
+    setSyncStatus('idle');
+    setSyncError('');
+  };
+
   // --- Filtering Mechanics ---
   const filteredReels = reels.filter((reel) => {
     // 1. Category Fit
@@ -220,66 +313,73 @@ export default function App() {
 
       {/* --- Top Navbar Header --- */}
       <header className="sticky top-0 z-30 border-b border-zinc-800 bg-[#0F0F11]/90 backdrop-blur-md">
-        <div className="mx-auto max-w-7xl px-4 py-4.5 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            {/* Brand Title */}
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-650 to-purple-600 text-white shadow-lg shadow-indigo-550/10 border border-indigo-500/20">
-                <LucideIcon name="PlayCircle" size={24} className="fill-current text-indigo-100" />
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-14 gap-4">
+
+            {/* Brand */}
+            <div className="flex items-center gap-2.5 shrink-0">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-tr from-indigo-600 to-purple-600 text-white">
+                <LucideIcon name="PlayCircle" size={16} className="fill-current text-indigo-100" />
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h1 className="font-display text-lg font-extrabold tracking-tight text-white sm:text-xl">
-                    Reel Organizer
-                  </h1>
-                  <span className="rounded-full bg-zinc-900 px-2.5 py-0.5 text-[9px] font-extrabold text-indigo-400 uppercase tracking-wider border border-zinc-800">
-                    My Scrapbook
-                  </span>
-                </div>
-                <p className="text-xs text-zinc-400 font-sans mt-0.5">
-                  Save, categorize, search, and play social media reels directly without bookmarks clutter
-                </p>
-              </div>
+              <h1 className="text-sm font-bold tracking-tight text-white">Reel Organizer</h1>
             </div>
 
-            {/* Quick Utility Actions Toolbar */}
-            <div className="flex flex-wrap items-center gap-2.5">
+            {/* Actions */}
+            <div className="flex items-center gap-2">
+
+              {/* Google Drive */}
+              {googleConnected ? (
+                <div className="flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 px-2.5 py-1.5">
+                  {syncStatus === 'syncing' && <LucideIcon name="Loader2" size={11} className="text-indigo-400 animate-spin" />}
+                  {syncStatus === 'synced'  && <LucideIcon name="Cloud" size={11} className="text-emerald-400" />}
+                  {syncStatus === 'error'   && <LucideIcon name="CloudOff" size={11} className="text-rose-400" title={syncError} />}
+                  <span className="text-[10px] font-medium text-zinc-400 max-w-[120px] truncate hidden sm:block">
+                    {getConnectedEmail() || 'Drive'}
+                  </span>
+                  <button onClick={handleDisconnectGoogle} className="ml-1 text-zinc-600 hover:text-rose-400 transition-colors cursor-pointer" title="Disconnect">
+                    <LucideIcon name="X" size={11} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={handleConnectGoogle}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer"
+                >
+                  <LucideIcon name="Cloud" size={12} className="text-indigo-400" />
+                  <span className="hidden sm:block">Sync Drive</span>
+                </button>
+              )}
+
+              {/* Backup */}
               <button
                 id="utility-backup-btn"
-                onClick={() => {
-                  setBackupNotice(null);
-                  setBackupInput('');
-                  setIsBackupOpen(true);
-                }}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-xs font-semibold text-zinc-300 hover:bg-zinc-800 hover:text-white hover:border-zinc-700 transition-all cursor-pointer"
-                title="Backup and Restore organized library data"
+                onClick={() => { setBackupNotice(null); setBackupInput(''); setIsBackupOpen(true); }}
+                className="p-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer"
+                title="Backup & Restore"
               >
-                <LucideIcon name="Download" size={13} />
-                Backup & Restore
+                <LucideIcon name="Download" size={14} />
               </button>
 
-              <div className="h-6 w-px bg-zinc-800 mx-1 hidden sm:block" />
-
+              {/* Manage Categories */}
               <button
                 id="header-manage-categories-btn"
                 onClick={() => setIsCategoryFormOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-2 text-xs font-semibold text-zinc-350 hover:bg-zinc-800 hover:border-zinc-700 transition-all cursor-pointer"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-[11px] font-semibold text-zinc-300 hover:bg-zinc-800 hover:border-zinc-700 transition-all cursor-pointer"
               >
-                <LucideIcon name="FolderPlus" size={14} className="text-indigo-400" />
-                Manage Categories
+                <LucideIcon name="FolderPlus" size={13} className="text-indigo-400" />
+                <span className="hidden sm:block">Categories</span>
               </button>
 
+              {/* Add Reel */}
               <button
                 id="header-add-reel-btn"
-                onClick={() => {
-                  setEditingReel(null);
-                  setIsReelFormOpen(true);
-                }}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4.5 py-2 text-xs font-bold text-white shadow-lg shadow-indigo-950/25 hover:bg-indigo-505 transition-all hover:scale-102 active:scale-98 cursor-pointer"
+                onClick={() => { setEditingReel(null); setIsReelFormOpen(true); }}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-indigo-500 transition-all active:scale-95 cursor-pointer"
               >
-                <LucideIcon name="Plus" size={14} />
-                Organize Reel
+                <LucideIcon name="Plus" size={13} />
+                Add Reel
               </button>
+
             </div>
           </div>
         </div>
