@@ -102,14 +102,22 @@ export default function ReelPlayerModal({
         <div className="relative flex flex-1 items-center justify-center bg-zinc-950 p-2 md:p-6 lg:p-8 shrink-0 select-none">
           {/* Constrained 9:16 frame container */}
           <div className="relative h-full aspect-[9/16] max-h-[85vh] w-full max-w-sm rounded-2xl overflow-hidden shadow-xl border border-zinc-850 bg-zinc-950 flex items-center">
-            <iframe
-              src={reel.embedCode}
-              className="absolute inset-0 h-full w-full border-0"
-              allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
-              allowFullScreen
-              referrerPolicy="no-referrer"
-              title={reel.title}
-            />
+            {reel.imageUrl && !reel.embedCode ? (
+              <img
+                src={reel.imageUrl}
+                alt={reel.title}
+                className="absolute inset-0 h-full w-full object-contain"
+              />
+            ) : (
+              <iframe
+                src={reel.embedCode}
+                className="absolute inset-0 h-full w-full border-0"
+                allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
+                allowFullScreen
+                referrerPolicy="no-referrer"
+                title={reel.title}
+              />
+            )}
           </div>
         </div>
 

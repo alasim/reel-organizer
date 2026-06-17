@@ -17,4 +17,5 @@ export interface Reel {
   createdAt: string;
   rating?: number; // 1 to 5 stars
   platform: 'instagram' | 'facebook' | 'tiktok' | 'other';
+  imageUrl?: string;
 }

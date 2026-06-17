@@ -258,16 +258,6 @@ export default function App() {
                 Backup & Restore
               </button>
 
-              <button
-                id="utility-reset-btn"
-                onClick={handleResetData}
-                aria-label="Reset Application Data"
-                className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 p-2 text-xs font-semibold text-zinc-500 hover:text-rose-400 hover:border-rose-900 hover:bg-rose-950/20 transition-all cursor-pointer"
-                title="Reset application to defaults"
-              >
-                <LucideIcon name="Trash2" size={13} />
-              </button>
-
               <div className="h-6 w-px bg-zinc-800 mx-1 hidden sm:block" />
 
               <button

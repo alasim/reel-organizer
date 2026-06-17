@@ -124,16 +124,24 @@ export default function ReelCard({
         </h3>
       </div>
 
-      {/* Media Window Container / Direct Native Iframe Preview */}
+      {/* Media Window Container */}
       <div className="relative aspect-[9/16] w-full overflow-hidden bg-zinc-950 border-y border-zinc-900/80">
-        <iframe
-          src={reel.embedCode}
-          className="absolute inset-0 h-full w-full border-0 select-text"
-          allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
-          allowFullScreen
-          referrerPolicy="no-referrer"
-          title={reel.title}
-        />
+        {reel.imageUrl && !reel.embedCode ? (
+          <img
+            src={reel.imageUrl}
+            alt={reel.title}
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        ) : (
+          <iframe
+            src={reel.embedCode}
+            className="absolute inset-0 h-full w-full border-0 select-text"
+            allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
+            allowFullScreen
+            referrerPolicy="no-referrer"
+            title={reel.title}
+          />
+        )}
       </div>
 
       {/* Rating & Actions Panel Footer */}

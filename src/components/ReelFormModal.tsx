@@ -27,6 +27,10 @@ export default function ReelFormModal({
   const [isFavorite, setIsFavorite] = useState(false);
   const [rating, setRating] = useState(5);
   const [validationError, setValidationError] = useState('');
+  const [inputMode, setInputMode] = useState<'embed' | 'image'>('embed');
+  const [imageUrl, setImageUrl] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
 
   useEffect(() => {
     if (editingReel) {
@@ -38,8 +42,10 @@ export default function ReelFormModal({
       setIsFavorite(editingReel.isFavorite);
       setRating(editingReel.rating || 5);
       setValidationError('');
+      setImageUrl(editingReel.imageUrl || '');
+      setInputMode(editingReel.imageUrl ? 'image' : 'embed');
+      setUploadError('');
     } else {
-      // Reset form for fresh creation
       setTitle('');
       setCategoryId(categories[0]?.id || '');
       setInputUrl('');
@@ -48,8 +54,36 @@ export default function ReelFormModal({
       setIsFavorite(false);
       setRating(5);
       setValidationError('');
+      setImageUrl('');
+      setInputMode('embed');
+      setUploadError('');
     }
   }, [editingReel, isOpen, categories]);
+
+  const handleImageUpload = async (file: File) => {
+    setIsUploading(true);
+    setUploadError('');
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('upload_preset', 'all-uploads');
+      formData.append('cloud_name', 'dnxehbjsd');
+      const response = await fetch(
+        'https://api.cloudinary.com/v1_1/dnxehbjsd/image/upload',
+        { method: 'POST', body: formData }
+      );
+      const data = await response.json();
+      if (data.secure_url) {
+        setImageUrl(data.secure_url);
+      } else {
+        setUploadError('Upload failed. Try again.');
+      }
+    } catch {
+      setUploadError('Upload failed. Check connection and try again.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -64,16 +98,30 @@ export default function ReelFormModal({
       setValidationError('Please select a category.');
       return;
     }
-    if (!inputUrl.trim()) {
-      setValidationError('Please paste an iframe embed code or link (Instagram, TikTok, Facebook).');
-      return;
-    }
+    let embedCode = '';
+    let platform: Reel['platform'] = 'other';
+    let originalUrl: string | undefined;
+    let uploadedImageUrl: string | undefined;
 
-    // Parse the input link or iframe string
-    const parsed = parseReelUrl(inputUrl);
-    if (!parsed.embedUrl) {
-      setValidationError('Could not parse a valid embed source from the input. Please enter a valid URL.');
-      return;
+    if (inputMode === 'embed') {
+      if (!inputUrl.trim()) {
+        setValidationError('Please paste an iframe embed code or link (Instagram, TikTok, Facebook).');
+        return;
+      }
+      const parsed = parseReelUrl(inputUrl);
+      if (!parsed.embedUrl) {
+        setValidationError('Could not parse a valid embed source from the input. Please enter a valid URL.');
+        return;
+      }
+      embedCode = parsed.embedUrl;
+      platform = parsed.platform;
+      originalUrl = inputUrl.includes('http') && !inputUrl.includes('<iframe') ? inputUrl.trim() : editingReel?.url;
+    } else {
+      if (!imageUrl) {
+        setValidationError('Please upload an image first.');
+        return;
+      }
+      uploadedImageUrl = imageUrl;
     }
 
     // Process tags
@@ -85,13 +133,14 @@ export default function ReelFormModal({
     const dataSubmit: Omit<Reel, 'id' | 'createdAt'> & { id?: string } = {
       title: title.trim(),
       categoryId,
-      embedCode: parsed.embedUrl,
-      url: inputUrl.includes('http') && !inputUrl.includes('<iframe') ? inputUrl.trim() : editingReel?.url,
+      embedCode,
+      url: originalUrl,
+      imageUrl: uploadedImageUrl,
       notes: notes.trim(),
       tags,
       isFavorite,
       rating,
-      platform: parsed.platform,
+      platform,
     };
 
     if (editingReel) {
@@ -204,28 +253,102 @@ export default function ReelFormModal({
             </div>
           </div>
 
-          {/* Embed or Link */}
+          {/* Media Source */}
           <div>
-            <div className="flex justify-between items-center mb-1.5">
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-500 font-mono">
-                Embed Code or Original Link *
-              </label>
-              <span className="text-[9px] text-indigo-400 font-bold bg-indigo-950/40 border border-indigo-900/40 px-2 py-0.5 rounded-md font-mono">
-                Auto-Parsing
-              </span>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-1.5 font-mono">
+              Media Source *
+            </label>
+            <div className="flex rounded-lg border border-zinc-800 overflow-hidden mb-3">
+              <button
+                type="button"
+                onClick={() => setInputMode('embed')}
+                className={`flex-1 py-2 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
+                  inputMode === 'embed'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-zinc-950 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
+                }`}
+              >
+                <LucideIcon name="Link2" size={12} />
+                Video Link / Embed
+              </button>
+              <button
+                type="button"
+                onClick={() => setInputMode('image')}
+                className={`flex-1 py-2 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
+                  inputMode === 'image'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-zinc-950 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
+                }`}
+              >
+                <LucideIcon name="ImagePlus" size={12} />
+                Upload Image
+              </button>
             </div>
-            <textarea
-              id="reel-url-input"
-              rows={3}
-              placeholder="Paste Instagram video link, TikTok url, FB reel link or raw <iframe> code..."
-              value={inputUrl}
-              onChange={(e) => setInputUrl(e.target.value)}
-              className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3.5 py-2 text-xs md:text-sm text-zinc-100 placeholder-zinc-700 focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 transition-shadow font-mono"
-              required
-            />
-            <p className="mt-1.5 text-[10px] text-zinc-500 leading-relaxed font-sans">
-              We split links instantly (e.g. <code>instagram.com/reel/C8Hk...</code>) into proper visual cards and load the interactive video player.
-            </p>
+
+            {inputMode === 'embed' ? (
+              <>
+                <div className="flex justify-end mb-1.5">
+                  <span className="text-[9px] text-indigo-400 font-bold bg-indigo-950/40 border border-indigo-900/40 px-2 py-0.5 rounded-md font-mono">
+                    Auto-Parsing
+                  </span>
+                </div>
+                <textarea
+                  id="reel-url-input"
+                  rows={3}
+                  placeholder="Paste Instagram video link, TikTok url, FB reel link or raw <iframe> code..."
+                  value={inputUrl}
+                  onChange={(e) => setInputUrl(e.target.value)}
+                  className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3.5 py-2 text-xs md:text-sm text-zinc-100 placeholder-zinc-700 focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 transition-shadow font-mono"
+                />
+                <p className="mt-1.5 text-[10px] text-zinc-500 leading-relaxed font-sans">
+                  We split links instantly (e.g. <code>instagram.com/reel/C8Hk...</code>) into proper visual cards and load the interactive video player.
+                </p>
+              </>
+            ) : (
+              <div className="space-y-2">
+                {uploadError && (
+                  <p className="text-xs text-rose-400">{uploadError}</p>
+                )}
+                {imageUrl ? (
+                  <div className="relative rounded-xl overflow-hidden border border-zinc-800 bg-zinc-950">
+                    <img src={imageUrl} alt="Uploaded preview" className="w-full max-h-48 object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => setImageUrl('')}
+                      className="absolute top-2 right-2 rounded-full bg-black/70 p-1 text-white hover:bg-black transition-colors cursor-pointer"
+                    >
+                      <LucideIcon name="X" size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <label
+                    className={`flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-zinc-800 bg-zinc-950 p-6 cursor-pointer hover:border-indigo-600 hover:bg-indigo-950/10 transition-colors ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}
+                  >
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="sr-only"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleImageUpload(file);
+                      }}
+                    />
+                    {isUploading ? (
+                      <>
+                        <LucideIcon name="Loader2" size={24} className="text-indigo-400 animate-spin" />
+                        <span className="text-xs text-zinc-400">Uploading...</span>
+                      </>
+                    ) : (
+                      <>
+                        <LucideIcon name="ImagePlus" size={24} className="text-zinc-500" />
+                        <span className="text-xs text-zinc-400">Click to upload image</span>
+                        <span className="text-[10px] text-zinc-600">JPG, PNG, GIF, WebP</span>
+                      </>
+                    )}
+                  </label>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Notes / Steps */}
