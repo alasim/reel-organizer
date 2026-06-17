@@ -1,0 +1,6 @@
+{
+  "name": "Reel Organizer",
+  "description": "A modern dashboard to organize, play, search, and preview Instagram, Facebook, and TikTok Reels using embed codes and categories.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
